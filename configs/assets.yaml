@@ -1,0 +1,22 @@
+servers:
+  - id: server-prod-130
+    aliases:
+      - "192.168.59.130"
+      - app-server-01
+    prometheus_instance: "192.168.59.130:9100"
+    environment: prod
+    prometheus_job: node-exporter
+  - id: server-prod-132
+    aliases:
+      - "192.168.59.132"
+      - app-server-02
+    prometheus_instance: "192.168.59.132:9100"
+    environment: prod
+    prometheus_job: node-exporter
+  - id: server-stg-140
+    aliases:
+      - "192.168.59.140"
+      - staging-server-01
+    prometheus_instance: "192.168.59.140:9100"
+    environment: staging
+    prometheus_job: node-exporter

@@ -1,28 +1,64 @@
 # AI Prometheus 巡检 Agent
 
-基于智谱 GLM-5.3 与 LangGraph 的单 Agent + 可插拔 Skill 架构。图先解析意图，再用 `Send` 把目标路由到对应 Skill 节点。Skill 内部完成 Prometheus 查询和阈值判断，只把异常项交给报告层。
+基于 GLM-5.3 与受控分析 DSL 的服务器巡检系统。模型只负责理解用户意图并生成受控分析计划；Prometheus 查询、阈值判断、异常识别、统计计算和报告事实全部由 Python 完成。模型不接触 Prometheus API、没有工具调用权限、不编写 PromQL。
 
-当前 Skill：`server_inspect`、`redis_inspect`、`kafka_inspect`、`k8s_inspect`。新增巡检类型时实现 Skill 并在 `build_default_skills()` 注册，图会自动把它加成节点。
+## 设计原则
 
-Agent 只做查询分析，不会自动修改服务器或集群。变更建议标注：需要人工确认后执行。
+- 大模型负责理解，代码负责判断。
+- 先生成 `InspectionPlan`，通过校验后才允许访问 Prometheus。
+- 一轮编排：一条请求只生成一次计划，不根据中间结果再次请求模型。
+- 按需查询：单指标请求只拉取所需指标，禁止拉取全部指标。
+- 所有异常可解释：包含统计值、阈值、时间、严重级别和风险说明。
+- 区分实例不存在、指标缺失、查询失败和正常状态。
 
-## 功能
+## 架构
 
-- 意图先行：先提取对象类型、实例标识、指标范围，再调用 Skill
-- 可插拔 Skill：主机 / Redis / Kafka / Kubernetes
-- 实例先校验：查不到实例直接返回「未找到对应实例」，不再查业务指标
-- 指标收窄：`查询服务器 192.168.59.130 的 cpu` 只查 CPU
-- 单轮调用：一次请求最多一轮 Skill；全集群才并行四个 Skill
-- 只回异常：正常指标不进入报告，减少 token
-- 禁止编造监控数据
+```mermaid
+flowchart LR
+    U[用户请求] --> A[CLI 或 FastAPI]
+    A --> L[GLM 意图与计划生成]
+    L --> V[Schema 与策略校验]
+    V --> P[InspectionPlan]
+    P --> O[单轮执行编排器]
+    O --> S[ServerMetricSkill]
+    S --> G[Prometheus 查询网关]
+    G --> M[Prometheus HTTP API]
+    S --> MS[标准化 MetricSeries]
+    MS --> C[公共分析算子]
+    C --> R[结构化巡检报告]
+    R --> T[模板报告]
+    R -. 可选 .-> N[GLM 报告摘要]
+```
 
-## 环境准备
+专项 Skill 与公共分析层职责分离：专项 Skill 只做实例发现、标签映射、PromQL 模板和 `MetricSeries` 转换；公共分析层只处理 `MetricSeries`，提供有限、可组合的算子。
 
-- Python >= 3.10
-- 可访问的智谱开放平台 API Key
-- 已接入对应 exporter 的 Prometheus
+## 目录
 
-## 安装依赖
+```text
+app/
+  api/                    FastAPI 路由与请求模型
+  core/                   配置、日志、异常、请求上下文、时间解析
+  domain/                 Intent、Plan、MetricSeries、Finding、Report
+  nlu/                    GLM 客户端、意图 Schema、规则回退
+  planner/                计划构建与校验
+  inventory/              静态资产目录与别名解析
+  prometheus/             HTTP 客户端、查询模板、安全参数绑定、查询预算
+  rules/                  YAML 规则加载与阈值/异常/显著性判定
+  skills/
+    base.py               专项指标 Skill 协议
+    providers/server/     ServerMetricSkill、queries.yaml、metric_catalog.yaml
+  analysis/
+    operators/            aggregate/filter/sort/limit/group_by/compare/trend/detect_anomaly/summarize
+    validator.py          DSL 校验
+    executor.py           单轮执行
+  reporting/              报告构建与渲染（文本 / Markdown / JSON）
+configs/
+  assets.yaml             服务器资产与别名
+  policies.yaml           异常、对比、趋势与查询预算策略
+tests/                    unit / integration / contract
+```
+
+## 安装
 
 ```bash
 python3 -m venv .venv
@@ -31,124 +67,86 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-官方 Python SDK 使用 `zai-sdk==0.2.3`，导入 `from zai import ZhipuAiClient`。不要同时安装旧包 `zhipuai`。
-
-编辑 `.env`，至少填写：
+至少配置：
 
 ```bash
-ZHIPU_API_KEY=你的智谱密钥
 PROMETHEUS_URL=http://你的Prometheus地址:9090
-ZHIPU_MODEL=glm-5.3
 ```
 
-## 启动命令
+配置 `ZHIPU_API_KEY` 后使用 GLM 解析意图；未配置时使用内置规则回退，巡检功能不受影响。
 
-交互模式：
+## 使用
 
 ```bash
-python main.py
+python3 -m app --check-config
+python3 -m app --plan "查看 CPU 使用率最高的机器"
+python3 -m app "查询服务器 192.168.59.130 的 CPU"
+python3 -m app "巡检服务器 192.168.59.130"
+python3 -m app "查询最近 4 天的服务器异常清单"
+python3 -m app "对比 192.168.59.130 今天和昨天的运行情况"
+python3 -m app "分析服务器 192.168.59.130 最近 7 天 CPU 趋势"
+python3 -m app --selftest
 ```
 
-单次指令：
+不传指令进入交互模式。加 `--json` 输出结构化报告。
+
+HTTP API（需安装 `fastapi`、`uvicorn`）：
 
 ```bash
-python main.py 查询服务器 192.168.59.130 的 cpu
-python main.py 巡检 redis6404
-python main.py 全集群巡检
+uvicorn app.api.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-离线自测：
+- `GET /health`
+- `GET /capabilities`
+- `POST /inspect`，请求体 `{"instruction": "查询服务器 192.168.59.130 的 CPU"}`
 
-```bash
-python main.py --selftest
-```
+## 任务类型与算子组合
 
-只看规划：
+| 任务 | task_type | 算子组合 | 示例 |
+| --- | --- | --- | --- |
+| 当前巡检 | `instant_inspection` | aggregate → filter → summarize | 查询服务器 192.168.59.130 的 CPU |
+| 基础巡检 | `instant_inspection` | aggregate → filter → summarize | 巡检服务器 192.168.59.130 |
+| 历史异常 | `historical_anomaly_summary` | detect_anomaly → group_by → sort → summarize | 查询最近 4 天的服务器异常清单 |
+| 时段对比 | `period_comparison` | aggregate → compare → filter → summarize | 对比今天和昨天 |
+| 趋势分析 | `trend_analysis` | trend → summarize | 分析最近 7 天 CPU 趋势 |
+| 排行查询 | `ranking_query` | aggregate → sort → limit → summarize | CPU 使用率最高的机器 |
+| 阈值筛选 | `threshold_filter` | aggregate → filter → sort → summarize | 找出 CPU 超过 80% 的机器 |
 
-```bash
-python main.py --plan 查询服务器 192.168.59.130 的 cpu
-```
+## 默认指标与阈值
 
-检查配置：
-
-```bash
-python main.py --check-config
-```
-
-## 测试调用示例
-
-| 指令 | 解析结果 | 行为 |
+| 逻辑指标 | Prometheus 指标 | 默认规则 |
 | --- | --- | --- |
-| `巡检 redis6404` | 对象 redis，实例 redis6404 | 调用 `redis_inspect`，基础健康巡检 |
-| `查询服务器 192.168.59.130 的 cpu` | 对象 server，实例 192.168.59.130，指标 cpu | 只查 CPU，不查内存磁盘 |
-| `帮我查看当前服务器的/目录磁盘使用量` | 对象 server，指标 disk | 只查磁盘 |
-| `全集群巡检` / `做一个全面巡检` | 四个 Skill | 并行调用全部 Skill |
-| `帮我查看 192.168.59.131 这台服务器` | 对象 server，实例 192.168.59.131 | 实例不存在则返回「未找到对应实例」 |
+| `availability` | `up` | 小于 1 为严重 |
+| `cpu` | `node_cpu_seconds_total` | >85% 告警，>95% 严重 |
+| `memory` | `node_memory_MemAvailable_bytes` / `node_memory_MemTotal_bytes` | >90% 告警，>95% 严重 |
+| `disk` | `node_filesystem_avail_bytes` / `node_filesystem_size_bytes` | >85% 告警，>95% 严重 |
 
-## 架构
+PromQL 模板在 `app/skills/providers/server/queries.yaml`，指标与阈值在 `metric_catalog.yaml`，异常合并、显著性、趋势和查询预算在 `configs/policies.yaml`。部署环境只需校准配置，无需改动业务代码。
 
-```text
-用户指令
-  -> LangGraph 意图节点（对象 / 实例 / 指标）
-  -> Send 到匹配 Skill 节点（全集群并行）
-  -> Skill：校验实例 -> PromQL -> 阈值判断 -> 只返回异常
-  -> 建议节点（可选 LLM）-> 报告节点
-```
+## 扩展新组件
 
-```text
-main.py                         命令行入口
-agent/agent.py                  InspectionAgent，编译并 invoke LangGraph
-agent/graph.py                  StateGraph：意图 / Skill / 建议 / 报告
-agent/intent.py                 自然语言意图解析
-agent/skills/base.py            Skill 基类与注册表
-agent/skills/server_inspect.py  主机巡检
-agent/skills/redis_inspect.py   Redis 巡检
-agent/skills/kafka_inspect.py   Kafka 巡检
-agent/skills/k8s_inspect.py     Kubernetes 巡检
-agent/prometheus_client.py      Prometheus HTTP 客户端（Skill 内部使用）
-agent/report/builder.py         异常报告
-tests/selftest.py               离线自测
-```
+新增 Redis、Kafka 或 MySQL 时复用 `Intent`、`InspectionPlan`、Prometheus 网关、分析 DSL、通用算子、规则引擎、资产目录和报告模型。只需提供：
 
-后续新增巡检类型：新建 `agent/skills/xxx_inspect.py`，在 `agent/skills/__init__.py` 的 `build_default_skills()` 中 `register`。每人只维护自己的 Skill 文件。
+1. 组件自己的查询模板与指标白名单。
+2. 指标的默认阈值、单位和允许使用的通用算子。
+3. 实例发现与资产映射规则。
+4. 实现 `BaseMetricProvider` 的 Skill 与其测试，并在注册表中登记。
 
-## Skill 内置逻辑
+主 Agent、计划校验器、执行编排器和通用分析算子不需要按组件新增业务分支。
 
-1. 收到实例后先探活（如 `up` / `redis_up` / `kafka_brokers` / `kube_pod_info`）
-2. 实例不存在：立即返回「未找到对应实例」
-3. PromQL、阈值、数值比较都在 Skill 代码里完成，不交给 LLM
-4. 返回已检查指标的当前值、均值、峰值和阈值；超阈值项同时放进 `anomalies`
-
-## 工具调用约束
-
-- 单次用户请求最多一轮 Skill 调用
-- 未说全集群时，只调用匹配的 Skill
-- 一个 Skill 一次执行完该对象的全部点名指标
-
-## 报告规范
-
-- 标注实例和巡检范围
-- 已检查指标都列出：当前值、最新值、均值、峰值、警告/严重阈值
-- 异常项额外标注风险说明
-- 找不到实例：返回「未找到对应实例」
-
-## Docker 与 Kubernetes
+## 测试
 
 ```bash
-docker build -t inspect-agent:v1 .
+python3 -m pytest
 ```
 
-部署前改 `deploy/k8s/secret.yaml` 的 `ZHIPU_API_KEY`，以及 `deploy/k8s/configmap.yaml` 的 `PROMETHEUS_URL`。
-
-```bash
-kubectl apply -k deploy/k8s
-kubectl -n inspect-agent exec -it deploy/inspect-agent -- python main.py --doctor
-kubectl -n inspect-agent exec -it deploy/inspect-agent -- python main.py 查询服务器 192.168.59.130 的 cpu
-```
+- `tests/unit`：时间解析、资产目录、分析算子、计划校验。
+- `tests/integration`：基于模拟 Prometheus 的端到端巡检（只查点名指标、未找到实例、指标缺失、数据源异常、异常清单、时段对比、趋势、排行、阈值筛选、查询预算）。
+- `tests/contract`：`MetricSeries` 契约、DSL 校验、查询模板安全绑定。
 
 ## 约束
 
-- 所有指标必须来自 Prometheus，禁止编造
-- 禁止主动查询用户没提到的组件和指标
-- 禁止一次性拉取 Prometheus 全部指标
-- 变更操作只作为建议，并标注需要人工确认后执行
+- 所有指标必须来自 Prometheus，禁止编造。
+- 禁止查询用户未点名的组件和指标。
+- 计划校验不通过时不访问 Prometheus。
+- 变更操作只作为建议，需人工确认后执行。

@@ -1,0 +1,97 @@
+metrics:
+  availability:
+    display_name: 可用性
+    unit: ratio
+    template: up
+    aggregation: latest
+    description: 实例存活探针，值为 1 表示可用
+    dimensions: [instance]
+    supported_operations:
+      - aggregate
+      - filter
+      - sort
+      - limit
+      - group_by
+      - compare
+      - trend
+      - detect_anomaly
+      - summarize
+    thresholds:
+      warning:
+        comparison: lt
+        value: 1
+      critical:
+        comparison: lt
+        value: 1
+  cpu:
+    display_name: CPU 使用率
+    unit: percent
+    template: cpu_usage
+    aggregation: avg
+    description: 5 分钟平均 CPU 使用率
+    dimensions: [instance]
+    supported_operations:
+      - aggregate
+      - filter
+      - sort
+      - limit
+      - group_by
+      - compare
+      - trend
+      - detect_anomaly
+      - summarize
+    thresholds:
+      warning:
+        comparison: gt
+        value: 85
+      critical:
+        comparison: gt
+        value: 95
+  memory:
+    display_name: 内存使用率
+    unit: percent
+    template: memory_usage
+    aggregation: avg
+    description: 内存使用率
+    dimensions: [instance]
+    supported_operations:
+      - aggregate
+      - filter
+      - sort
+      - limit
+      - group_by
+      - compare
+      - trend
+      - detect_anomaly
+      - summarize
+    thresholds:
+      warning:
+        comparison: gt
+        value: 90
+      critical:
+        comparison: gt
+        value: 95
+  disk:
+    display_name: 磁盘使用率
+    unit: percent
+    template: disk_usage
+    aggregation: max
+    description: 文件系统使用率，按挂载点分别计算
+    dimensions: [instance, device, mountpoint]
+    supported_operations:
+      - aggregate
+      - filter
+      - sort
+      - limit
+      - group_by
+      - compare
+      - trend
+      - detect_anomaly
+      - summarize
+    thresholds:
+      warning:
+        comparison: gt
+        value: 85
+      critical:
+        comparison: gt
+        value: 95

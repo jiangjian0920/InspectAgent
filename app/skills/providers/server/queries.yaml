@@ -1,0 +1,13 @@
+templates:
+  up:
+    promql: 'up{job=~"$job", instance=~"$instance"}'
+    default_window: 5m
+  cpu_usage:
+    promql: '100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle", job=~"$job", instance=~"$instance"}[$window])) * 100)'
+    default_window: 5m
+  memory_usage:
+    promql: '(1 - (node_memory_MemAvailable_bytes{job=~"$job", instance=~"$instance"} / node_memory_MemTotal_bytes{job=~"$job", instance=~"$instance"})) * 100'
+    default_window: 5m
+  disk_usage:
+    promql: '(1 - (node_filesystem_avail_bytes{job=~"$job", instance=~"$instance", fstype!~"tmpfs|overlay|squashfs|ramfs"} / node_filesystem_size_bytes{job=~"$job", instance=~"$instance", fstype!~"tmpfs|overlay|squashfs|ramfs"})) * 100'
+    default_window: 5m

@@ -1,0 +1,22 @@
+services:
+  inspect-agent:
+    build: .
+    environment:
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://prometheus:9090}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+      ZHIPU_MODEL: ${ZHIPU_MODEL:-glm-5.3}
+      REPORT_MODE: ${REPORT_MODE:-template}
+      DEFAULT_TIME_RANGE: ${DEFAULT_TIME_RANGE:-2h}
+    volumes:
+      - ./configs:/app/configs:ro
+    command: ["--check-config"]
+
+  api:
+    build: .
+    environment:
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://prometheus:9090}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+      ZHIPU_MODEL: ${ZHIPU_MODEL:-glm-5.3}
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "app.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
