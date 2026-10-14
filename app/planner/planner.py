@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.analysis.registry import SERIES_OPERATORS
 from app.analysis.validator import validate_operations
 from app.core.config import Settings
 from app.core.context import current_request_id, new_request_id
@@ -87,9 +88,7 @@ class InspectionPlanner:
     def build(self, intent: InspectionIntent) -> InspectionPlan:
         target = self._resolve_target(intent)
         metrics = self._select_metrics(intent)
-        operations = intent.operations or default_operations(
-            intent.task_type, intent.limit or self.settings.default_limit
-        )
+        operations = self._normalize_operations(intent)
         definitions = {d.metric_id: d for d in self.provider.supported_metrics()}
         validate_operations(operations, metrics, definitions)
         queries = self._build_queries(intent, target, metrics)
@@ -109,6 +108,23 @@ class InspectionPlanner:
             timeout_seconds=int(self.settings.prometheus_timeout_seconds * 4),
             report_mode=self.settings.report_mode,  # type: ignore[arg-type]
         )
+
+    def _normalize_operations(self, intent: InspectionIntent) -> list[AnalysisOperation]:
+        """模型给出的算子可能不完整；补齐取数与汇总阶段，否则回退默认组合。"""
+        limit = intent.limit or self.settings.default_limit
+        defaults = default_operations(intent.task_type, limit)
+        if not intent.operations:
+            return defaults
+        operations = list(intent.operations)
+        # 缺少取数算子时，模型输出不可用，直接使用默认组合。
+        if not any(op.type in SERIES_OPERATORS for op in operations):
+            return defaults
+        # 缺少汇总算子时补上，保证报告有结构化输出。
+        if operations[-1].type != "summarize" and not any(
+            op.type == "summarize" for op in operations
+        ):
+            operations.append(AnalysisOperation(type="summarize"))
+        return operations
 
     def _resolve_target(self, intent: InspectionIntent) -> ServerTarget:
         if intent.scope == "all":

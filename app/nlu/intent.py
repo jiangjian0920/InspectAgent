@@ -87,8 +87,11 @@ class IntentService:
             "- trend_analysis: 一段时间趋势\n"
             "- ranking_query: 排序 Top N（授权范围全部实例）\n"
             "- threshold_filter: 阈值筛选（授权范围全部实例）\n"
-            "可选的 operations 使用受控 DSL，算子仅限："
+            "可选的 operations 使用受控 DSL，元素必须是对象，算子仅限："
             "aggregate/group_by/filter/sort/limit/compare/trend/detect_anomaly/summarize。\n"
+            'operations 示例：[{"type":"aggregate","function":"avg","group_by":["instance"]},'
+            '{"type":"sort","field":"value","direction":"desc"},{"type":"limit","count":10},'
+            '{"type":"summarize"}]。不要输出字符串算子。\n'
             '示例：{"task_type":"period_comparison","target":{"type":"server",'
             '"instance":"192.168.59.130"},"metrics":["cpu","memory"],'
             '"periods":[{"name":"today","start":"today 00:00","end":"now"},'
