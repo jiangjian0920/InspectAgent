@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inspect-agent-configs
+  namespace: inspect-agent
+  labels:
+    app.kubernetes.io/name: inspect-agent
+data:
+  assets.yaml: |
+    servers:
+      - id: server-prod-130
+        aliases:
+          - "192.168.59.130"
+          - app-server-01
+        prometheus_instance: "192.168.59.130:9100"
+        environment: prod
+        prometheus_job: node-exporter
+      - id: server-prod-132
+        aliases:
+          - "192.168.59.132"
+          - app-server-02
+        prometheus_instance: "192.168.59.132:9100"
+        environment: prod
+        prometheus_job: node-exporter
+      - id: server-stg-140
+        aliases:
+          - "192.168.59.140"
+          - staging-server-01
+        prometheus_instance: "192.168.59.140:9100"
+        environment: staging
+        prometheus_job: node-exporter
+  policies.yaml: |
+    anomaly:
+      min_consecutive_samples: 2
+      max_gap_multiplier: 2.0
+      recover_samples: 2
+    comparison_default:
+      min_absolute_change: 5.0
+      min_relative_change: 0.2
+    comparison_by_metric:
+      cpu:
+        min_absolute_change: 10.0
+        min_relative_change: 0.2
+      memory:
+        min_absolute_change: 10.0
+        min_relative_change: 0.2
+      disk:
+        min_absolute_change: 5.0
+        min_relative_change: 0.1
+      availability:
+        min_absolute_change: 1.0
+        min_relative_change: 0.0
+    trend:
+      sustained_ratio: 0.5
+      slope_epsilon: 0.0
+    max_query_count: 40
+    max_time_range_days: 30
+    default_limit: 10
+    max_series: 200

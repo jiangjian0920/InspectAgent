@@ -55,6 +55,7 @@ app/
 configs/
   assets.yaml             服务器资产与别名
   policies.yaml           异常、对比、趋势与查询预算策略
+deploy/k8s/               Kubernetes 清单（Namespace/ConfigMap/Secret/Deployment/Service/Job/CronJob）
 tests/                    unit / integration / contract
 ```
 
@@ -133,6 +134,23 @@ PromQL 模板在 `app/skills/providers/server/queries.yaml`，指标与阈值在
 4. 实现 `BaseMetricProvider` 的 Skill 与其测试，并在注册表中登记。
 
 主 Agent、计划校验器、执行编排器和通用分析算子不需要按组件新增业务分支。
+
+## Kubernetes 部署
+
+清单在 `deploy/k8s/`，通过 kustomize 统一编排：
+
+```bash
+# 构建并推送镜像，或在集群节点加载本地镜像
+docker build -t inspect-agent:v1 .
+
+# 部署前改 secret.yaml 的 ZHIPU_API_KEY、configmap-env.yaml 的 PROMETHEUS_URL、configmap-configs.yaml 的 assets.yaml
+kubectl apply -k deploy/k8s
+kubectl -n inspect-agent rollout status deploy/inspect-agent-api
+```
+
+组成：`Deployment` + `Service`（FastAPI，含 `/health` 探针）、`Job`（一次性巡检）、`CronJob`（默认 `suspend: true`）。`assets.yaml` 与 `policies.yaml` 通过 ConfigMap 只读挂载到 `/app/configs`。
+
+详见 当前工作区 内的 `/deploy/k8s/README.md`。
 
 ## 测试
 

@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: inspect-agent
+resources:
+  - namespace.yaml
+  - configmap-env.yaml
+  - configmap-configs.yaml
+  - secret.yaml
+  - deployment-api.yaml
+  - service.yaml
+  - job.yaml
+  - cronjob.yaml
+images:
+  - name: inspect-agent
+    newName: inspect-agent
+    newTag: v1

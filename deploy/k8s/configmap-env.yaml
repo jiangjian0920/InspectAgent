@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inspect-agent-env
+  namespace: inspect-agent
+  labels:
+    app.kubernetes.io/name: inspect-agent
+data:
+  # Prometheus 数据源
+  PROMETHEUS_URL: "http://prometheus.monitoring.svc.cluster.local:9090"
+  PROMETHEUS_TIMEOUT_SECONDS: "30"
+  # 查询策略
+  DEFAULT_TIME_RANGE: "2h"
+  DEFAULT_STEP_SECONDS: "60"
+  MAX_TIME_RANGE_DAYS: "30"
+  MAX_QUERY_COUNT: "40"
+  MAX_SERIES: "200"
+  DEFAULT_LIMIT: "10"
+  # 报告模式：template 或 llm_summary
+  REPORT_MODE: "template"
+  # GLM（API Key 放在 Secret 中）
+  ZHIPU_MODEL: "glm-5.3"
+  ZHIPU_BASE_URL: ""
+  ZHIPU_TIMEOUT_SECONDS: "180"
+  ZHIPU_TEMPERATURE: "0.1"
+  LOG_LEVEL: "INFO"
+  # 作业指令（Job / CronJob 使用）
+  INSPECTION_INSTRUCTION: "查询服务器 192.168.59.130 的 CPU"
