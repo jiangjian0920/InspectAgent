@@ -20,6 +20,11 @@ _SYSTEM_PROMPT = (
     "不访问任何监控系统，不编造监控数据。只输出一个 JSON 对象，不要输出解释或 Markdown。"
 )
 
+_REPAIR_SYSTEM_PROMPT = (
+    "你是服务器巡检计划修正器。上一次计划未通过校验，请按错误提示和允许列表修正，"
+    "只输出一个 JSON 对象，不生成 PromQL，不访问监控系统，不编造数据，不输出解释或 Markdown。"
+)
+
 _ALLOWED_TASKS = [
     "instant_inspection",
     "historical_anomaly_summary",
@@ -29,6 +34,9 @@ _ALLOWED_TASKS = [
     "threshold_filter",
 ]
 _ALLOWED_METRICS = ["cpu", "memory", "disk", "availability"]
+
+# 计划校验失败后允许的 LLM 纠错次数上限。
+MAX_REPAIR_ATTEMPTS = 1
 
 
 def _extract_json(text: str) -> dict:
@@ -73,6 +81,82 @@ class IntentService:
             draft = fallback.parse(instruction)
         return self._normalize(draft, instruction, source)
 
+    def can_repair(self) -> bool:
+        """只有启用 GLM 时才具备纠错能力。"""
+        return self.llm is not None
+
+    def repair(
+        self,
+        instruction: str,
+        intent: InspectionIntent,
+        error: str,
+        *,
+        allowed_metrics: list[str] | None = None,
+        allowed_operators: list[str] | None = None,
+    ) -> InspectionIntent | None:
+        """计划校验失败后，把错误与合法列表回传 GLM 请求一次修正。
+
+        最多调用一次。任何失败都返回 None，由调用方给出原始报错。
+        """
+        if self.llm is None:
+            return None
+        metrics = allowed_metrics or _ALLOWED_METRICS
+        operators = allowed_operators or []
+        try:
+            raw = self.llm.complete(
+                [
+                    {"role": "system", "content": _REPAIR_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": self._build_repair_prompt(
+                            instruction, intent, error, metrics, operators
+                        ),
+                    },
+                ]
+            )
+            draft = ModelIntent.model_validate(_extract_json(raw))
+            repaired = self._normalize(draft, instruction, "llm_repair")
+        except Exception as exc:  # 纠错失败不影响最终报错
+            self.logger.warning("GLM 纠错失败: %s", exc)
+            return None
+        self.logger.info("GLM 纠错已生成新意图: task=%s metrics=%s", repaired.task_type, repaired.metrics)
+        return repaired
+
+    def _build_repair_prompt(
+        self,
+        instruction: str,
+        intent: InspectionIntent,
+        error: str,
+        allowed_metrics: list[str],
+        allowed_operators: list[str],
+    ) -> str:
+        now = datetime.now(timezone.utc).isoformat()
+        previous = json.dumps(
+            {
+                "task_type": intent.task_type,
+                "target": {"type": intent.target_type, "instance": intent.instance, "scope": intent.scope},
+                "metrics": intent.metrics,
+                "operations": [op.model_dump(exclude_defaults=True) for op in intent.operations],
+                "periods": [p.model_dump() for p in intent.periods],
+            },
+            ensure_ascii=False,
+        )
+        return (
+            "上一次生成的计划未通过校验，请修正后重新输出完整 JSON。\n"
+            f"当前时间(UTC): {now}\n"
+            f"校验错误: {error}\n"
+            f"允许的 task_type: {_ALLOWED_TASKS}\n"
+            f"允许的 metrics: {allowed_metrics}\n"
+            f"允许的算子: {allowed_operators}\n"
+            "约束：\n"
+            "- metrics 必须是允许列表中的英文标识，把口语化或错别字的指标名映射到最接近的合法指标。\n"
+            "- operations 元素必须是对象；limit 必须出现在 sort 之后；summarize 必须是最后一个算子。\n"
+            "- period_comparison 必须提供两个不重叠且长度相近的时间段。\n"
+            f"上一次输出: {previous}\n"
+            f"用户请求: {instruction}\n"
+            "只输出修正后的 JSON。"
+        )
+
     def _build_prompt(self, instruction: str) -> str:
         now = datetime.now(timezone.utc).isoformat()
         return (
@@ -106,7 +190,13 @@ class IntentService:
         if task not in _ALLOWED_TASKS:
             raise IntentError(f"不支持的任务类型: {task}")
 
-        metrics = [m for m in draft.metrics if m in _ALLOWED_METRICS]
+        # 只做轻量规范化，不在此过滤未知指标；允许列表由计划校验器统一把关，
+        # 未知指标会在计划校验阶段触发一次 LLM 纠错。
+        metrics: list[str] = []
+        for raw_metric in draft.metrics:
+            key = str(raw_metric).strip().lower()
+            if key and key not in metrics:
+                metrics.append(key)
 
         target = draft.target
         instance = (target.instance or "").strip() or None

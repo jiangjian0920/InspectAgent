@@ -150,6 +150,13 @@ class InspectionPlanner:
         requested = [m for m in intent.metrics if m in known]
         if requested:
             return requested
+        # 用户点名了指标但都不在允许列表：交给上层触发一次 LLM 纠错，
+        # 把口语化或错别字的指标名映射到最接近的合法指标。
+        if intent.metrics:
+            unknown = [m for m in intent.metrics if m not in known]
+            raise PlanValidationError(
+                f"未声明支持的指标: {unknown}，允许的指标: {sorted(known)}"
+            )
         defaults = _DEFAULT_METRICS.get(intent.task_type, ["cpu"])
         return [m for m in defaults if m in known]
 

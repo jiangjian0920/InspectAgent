@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from app.analysis.executor import execute_plan
+from app.analysis.registry import registered_names
 from app.core.config import Settings
 from app.core.context import request_context
 from app.core.errors import InspectionError, PlanValidationError, QueryError, TargetNotFoundError
 from app.core.logging import get_logger, setup_logging
-from app.domain.models import InspectionPlan, InspectionReport
+from app.domain.models import InspectionIntent, InspectionPlan, InspectionReport
 from app.nlu.client import GLMClient
 from app.nlu.intent import IntentService
 from app.planner.planner import InspectionPlanner
@@ -61,14 +62,16 @@ class InspectionAgent:
             return build_not_found_report(request_id, intent.task_type, target, str(exc))
         except PlanValidationError as exc:
             self.logger.warning("request_id=%s 计划校验失败: %s", request_id, exc)
-            return build_error_report(
-                request_id,
-                intent.task_type,
-                intent.instance or "全部授权实例",
-                str(exc),
-                status="no_capability",
-                scope=intent.metrics,
-            )
+            plan = self._repair_plan(instruction, intent, str(exc), request_id)
+            if plan is None:
+                return build_error_report(
+                    request_id,
+                    intent.task_type,
+                    intent.instance or "全部授权实例",
+                    str(exc),
+                    status="no_capability",
+                    scope=intent.metrics,
+                )
 
         self.logger.info(
             "request_id=%s 计划已生成 queries=%d operations=%s",
@@ -112,6 +115,34 @@ class InspectionAgent:
         report = build_report(plan, series, state)
         report = self._maybe_summarize(plan, report)
         return report
+
+    def _repair_plan(
+        self,
+        instruction: str,
+        intent: InspectionIntent,
+        error: str,
+        request_id: str,
+    ) -> InspectionPlan | None:
+        """计划校验失败后给 GLM 一次纠错机会；不成功返回 None。"""
+        if not self.intent_service.can_repair():
+            return None
+        repaired_intent = self.intent_service.repair(
+            instruction,
+            intent,
+            error,
+            allowed_metrics=[d.metric_id for d in self.provider.supported_metrics()],
+            allowed_operators=registered_names(),
+        )
+        if repaired_intent is None:
+            self.logger.info("request_id=%s 未获得有效的纠错结果", request_id)
+            return None
+        try:
+            plan = self.planner.build(repaired_intent)
+        except (PlanValidationError, TargetNotFoundError) as exc:
+            self.logger.warning("request_id=%s 纠错后仍未通过校验: %s", request_id, exc)
+            return None
+        self.logger.info("request_id=%s 纠错后计划已生成", request_id)
+        return plan
 
     def _collect(self, plan: InspectionPlan):
         resource_id = plan.target.resource_id or plan.target.reference or "all"
