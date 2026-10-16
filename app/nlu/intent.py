@@ -53,6 +53,23 @@ def _extract_json(text: str) -> dict:
         raise IntentError(f"模型返回的 JSON 无法解析: {exc}") from exc
 
 
+def _describe_error(exc: Exception) -> str:
+    """把 pydantic 校验错误展开成单行详情，便于定位失败的字段。"""
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        try:
+            details = errors()
+        except Exception:  # pragma: no cover - 防御性
+            details = []
+        if details:
+            parts = []
+            for detail in details:
+                loc = ".".join(str(item) for item in detail.get("loc", ())) or "<root>"
+                parts.append(f"{loc}: {detail.get('msg')}（输入={detail.get('input')!r}）")
+            return "; ".join(parts)
+    return str(exc).replace("\n", " ").strip()
+
+
 class IntentService:
     """把自然语言转换为受控的 InspectionIntent。"""
 
@@ -75,7 +92,7 @@ class IntentService:
                 draft = ModelIntent.model_validate(_extract_json(raw))
                 source = "llm"
             except Exception as exc:  # 模型失败时回退，不影响可用性
-                self.logger.warning("GLM 意图解析失败，改用规则回退: %s", exc)
+                self.logger.warning("GLM 意图解析失败，改用规则回退: %s", _describe_error(exc))
                 draft = fallback.parse(instruction)
         else:
             draft = fallback.parse(instruction)
@@ -117,7 +134,7 @@ class IntentService:
             draft = ModelIntent.model_validate(_extract_json(raw))
             repaired = self._normalize(draft, instruction, "llm_repair")
         except Exception as exc:  # 纠错失败不影响最终报错
-            self.logger.warning("GLM 纠错失败: %s", exc)
+            self.logger.warning("GLM 纠错失败: %s", _describe_error(exc))
             return None
         self.logger.info("GLM 纠错已生成新意图: task=%s metrics=%s", repaired.task_type, repaired.metrics)
         return repaired

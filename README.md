@@ -142,11 +142,11 @@ PromQL 模板在 `app/skills/providers/server/queries.yaml`，指标与阈值在
 
 ```bash
 # 构建并推送镜像，或在集群节点加载本地镜像
-docker build -t inspect-agent:v1 .
+docker build -t wanchi:v1 .
 
 # 部署前改 secret.yaml 的 ZHIPU_API_KEY、configmap-env.yaml 的 PROMETHEUS_URL、configmap-configs.yaml 的 assets.yaml
 kubectl apply -k deploy/k8s
-kubectl -n inspect-agent rollout status deploy/inspect-agent-api
+kubectl -n wanchi rollout status deploy/wanchi-api
 ```
 
 组成：`Deployment` + `Service`（FastAPI，含 `/health` 探针）、`Job`（一次性巡检）、`CronJob`（默认 `suspend: true`）。`assets.yaml` 与 `policies.yaml` 通过 ConfigMap 只读挂载到 `/app/configs`。

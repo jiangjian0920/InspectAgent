@@ -71,6 +71,8 @@ def group_records(
                 "value": merge_values(values, function),
                 "collection_status": status,
                 "severity": None,
+                "threshold_warning": items[0].get("threshold_warning", ""),
+                "threshold_critical": items[0].get("threshold_critical", ""),
                 "group_size": len(items),
                 "period": items[0].get("period"),
             }

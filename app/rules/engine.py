@@ -21,7 +21,7 @@ def format_threshold(rule: ThresholdRule | None, unit: str) -> str:
     if rule is None:
         return ""
     symbol = {"gt": ">", "lt": "<", "ge": ">=", "le": "<="}[rule.comparison]
-    return f"{symbol} {rule.value}{_UNIT_SUFFIX.get(unit, '')}"
+    return f"{symbol} {rule.value:g}{_UNIT_SUFFIX.get(unit, '')}"
 
 
 def severity_of(value: float | None, definition: MetricDefinition) -> str | None:

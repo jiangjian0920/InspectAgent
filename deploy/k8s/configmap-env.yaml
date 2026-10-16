@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: inspect-agent-env
-  namespace: inspect-agent
+  name: wanchi-env
+  namespace: wanchi
   labels:
-    app.kubernetes.io/name: inspect-agent
+    app.kubernetes.io/name: wanchi
 data:
   # Prometheus 数据源
   PROMETHEUS_URL: "http://prometheus.monitoring.svc.cluster.local:9090"

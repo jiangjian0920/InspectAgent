@@ -4,6 +4,7 @@ from app.analysis.operators._grouping import group_records
 from app.analysis.state import PipelineState
 from app.domain.models import AnalysisOperation
 from app.analysis.stats import pick_aggregate, summarize_values
+from app.rules.engine import format_threshold, severity_of
 
 
 def run(state: PipelineState, op: AnalysisOperation) -> PipelineState:
@@ -17,6 +18,18 @@ def run(state: PipelineState, op: AnalysisOperation) -> PipelineState:
         numeric = series.numeric_values()
         stats = summarize_values(numeric)
         value = pick_aggregate(stats, function) if series.collection_status == "ok" else None
+        # 严重级别与阈值标签在取数阶段就标注，保证没有 filter 时报告也能给出级别。
+        severity = severity_of(value, definition) if definition else None
+        threshold_warning = (
+            format_threshold(definition.thresholds.get("warning"), definition.unit)
+            if definition
+            else ""
+        )
+        threshold_critical = (
+            format_threshold(definition.thresholds.get("critical"), definition.unit)
+            if definition
+            else ""
+        )
         records.append(
             {
                 "kind": "metric",
@@ -30,7 +43,9 @@ def run(state: PipelineState, op: AnalysisOperation) -> PipelineState:
                 "collection_status": series.collection_status,
                 "error": series.error,
                 "period": series.period,
-                "severity": None,
+                "severity": severity,
+                "threshold_warning": threshold_warning,
+                "threshold_critical": threshold_critical,
             }
         )
     state.records = group_records(records, group_by, function)

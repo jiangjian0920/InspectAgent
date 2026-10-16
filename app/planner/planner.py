@@ -66,7 +66,6 @@ def default_operations(task_type: str, limit: int) -> list[AnalysisOperation]:
         ]
     return [
         AnalysisOperation(type="aggregate", function="avg"),
-        AnalysisOperation(type="filter"),
         AnalysisOperation(type="summarize"),
     ]
 

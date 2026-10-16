@@ -21,6 +21,11 @@ def test_instant_inspection_only_queries_named_metric(settings, agent_factory):
     assert report.task_type == "instant_inspection"
     assert report.query_status == "healthy"
     assert report.findings and report.findings[0].severity == "critical"
+    # 报告必须打印具体指标，而不是只给一句结论。
+    assert len(report.metrics) == 1
+    assert report.metrics[0].metric == "cpu"
+    assert report.metrics[0].current == 99
+    assert report.metrics[0].severity == "critical"
 
 
 def test_basic_inspection_queries_all_metrics(settings, agent_factory):
@@ -38,6 +43,9 @@ def test_basic_inspection_queries_all_metrics(settings, agent_factory):
     assert len(client.queries) == 4
     assert report.query_status == "healthy"
     assert not report.findings
+    # 健康实例同样要逐项列出指标数值。
+    assert {row.metric for row in report.metrics} == {"cpu", "memory", "disk", "availability"}
+    assert all(row.current is not None for row in report.metrics)
 
 
 def test_metric_missing_is_not_healthy(settings, agent_factory):

@@ -1,10 +1,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: inspect-agent-once
-  namespace: inspect-agent
+  name: wanchi-once
+  namespace: wanchi
   labels:
-    app.kubernetes.io/name: inspect-agent
+    app.kubernetes.io/name: wanchi
     app.kubernetes.io/component: job
 spec:
   backoffLimit: 0
@@ -12,7 +12,7 @@ spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: inspect-agent
+        app.kubernetes.io/name: wanchi
         app.kubernetes.io/component: job
     spec:
       restartPolicy: Never
@@ -25,7 +25,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: inspect
-          image: inspect-agent:v1
+          image: wanchi:v1
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
@@ -36,9 +36,9 @@ spec:
               value: /app/configs
           envFrom:
             - configMapRef:
-                name: inspect-agent-env
+                name: wanchi-env
             - secretRef:
-                name: inspect-agent-secret
+                name: wanchi-secret
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -61,6 +61,6 @@ spec:
       volumes:
         - name: configs
           configMap:
-            name: inspect-agent-configs
+            name: wanchi-configs
         - name: tmp
           emptyDir: {}

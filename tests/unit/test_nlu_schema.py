@@ -40,3 +40,35 @@ def test_target_string_and_metrics_string():
     )
     assert model.target.instance == "192.168.59.130"
     assert model.metrics == ["cpu", "memory"]
+
+
+def test_task_type_accepts_chinese_and_camel_case():
+    assert ModelIntent.model_validate({"task_type": "排名查询"}).task_type == "ranking_query"
+    assert ModelIntent.model_validate({"task_type": "InstantInspection"}).task_type == "instant_inspection"
+    assert ModelIntent.model_validate({"task_type": "趋势分析"}).task_type == "trend_analysis"
+
+
+def test_operations_infer_type_from_fields():
+    model = ModelIntent.model_validate(
+        {
+            "task_type": "threshold_filter",
+            "operations": [
+                {"function": "avg", "group_by": ["instance"]},
+                {"field": "value", "comparison": "gt", "threshold": 80},
+                {"operator": "sort", "field": "value", "direction": "desc"},
+            ],
+        }
+    )
+    assert [op.type for op in model.operations] == ["aggregate", "filter", "sort"]
+
+
+def test_metric_objects_and_chinese_scope():
+    model = ModelIntent.model_validate(
+        {
+            "task_type": "ranking_query",
+            "target": {"scope": "全部"},
+            "metrics": [{"metric": "cpu"}],
+        }
+    )
+    assert model.metrics == ["cpu"]
+    assert model.target.scope == "all"
